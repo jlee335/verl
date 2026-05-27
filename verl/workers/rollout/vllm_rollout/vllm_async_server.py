@@ -603,13 +603,20 @@ class vLLMHttpServer:
         if hasattr(final_res.outputs[0], "num_preempted"):
             num_preempted = final_res.outputs[0].num_preempted
 
+        extra_fields = {
+            "global_steps": self.global_steps,
+            "vllm_request_id": final_res.request_id,
+            "num_cached_tokens": final_res.num_cached_tokens,
+            "num_preempted": num_preempted,
+        }
+
         return TokenOutput(
             token_ids=token_ids,
             log_probs=log_probs,
             routed_experts=routed_experts,
             stop_reason=stop_reason,
             num_preempted=num_preempted,
-            extra_fields={"global_steps": self.global_steps},
+            extra_fields=extra_fields,
         )
 
     async def wake_up(self):

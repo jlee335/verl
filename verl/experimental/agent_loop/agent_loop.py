@@ -139,6 +139,7 @@ class AsyncLLMServerManager:
         *,
         prompt_ids: list[int],
         sampling_params: dict[str, Any],
+        vllm_request_id: str | None = None,
         image_data: Optional[list[Any]] = None,
         video_data: Optional[list[Any]] = None,
     ) -> TokenOutput:
@@ -153,15 +154,28 @@ class AsyncLLMServerManager:
             TokenOutput: token output
         """
         server_id, server = await self._acquire_server(request_id)
+        internal_request_id = vllm_request_id or uuid4().hex
         try:
             output: TokenOutput = await server.generate.remote(
-                request_id=uuid4().hex,  # use new request_id for each turn
+                request_id=internal_request_id,
                 prompt_ids=prompt_ids,
                 sampling_params=sampling_params,
                 image_data=image_data,
                 video_data=video_data,
             )
-            return output
+            extra_fields = dict(output.extra_fields or {})
+            actual_vllm_request_id = extra_fields.get(
+                "vllm_request_id", internal_request_id
+            )
+            extra_fields.update(
+                {
+                    "application_id": request_id,
+                    "server_id": server_id,
+                    "requested_vllm_request_id": internal_request_id,
+                    "vllm_request_id": actual_vllm_request_id,
+                }
+            )
+            return output.model_copy(update={"extra_fields": extra_fields})
         finally:
             self._release_server(server_id)
 
