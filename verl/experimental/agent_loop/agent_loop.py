@@ -132,6 +132,36 @@ class AsyncLLMServerManager:
         # Awaiting here risks blocking the finally clause if the LB actor is unresponsive.
         self._load_balancer.release_server.remote(server_id=server_id)
 
+    async def ack_delayed_kv_free(
+        self,
+        vllm_request_id: str,
+        server_id: str | None = None,
+        open_resume_gate: bool = False,
+    ) -> dict[str, Any]:
+        if server_id is not None:
+            handle = self._server_id_to_handle.get(server_id)
+            if handle is None:
+                raise RuntimeError(f"Unknown server_id for delayed KV free ack: {server_id}")
+            return await handle.ack_delayed_kv_free.remote(
+                vllm_request_id, open_resume_gate=open_resume_gate
+            )
+
+        results = await asyncio.gather(
+            *[
+                handle.ack_delayed_kv_free.remote(
+                    vllm_request_id, open_resume_gate=open_resume_gate
+                )
+                for handle in self._server_id_to_handle.values()
+            ]
+        )
+        return {
+            "acked": sum(r.get("acked", 0) for r in results),
+            "freed": sum(r.get("freed", 0) for r in results),
+            "missing": sum(r.get("missing", 0) for r in results),
+            "request_id": vllm_request_id,
+            "server_results": results,
+        }
+
     @rollout_trace_op
     async def generate(
         self,

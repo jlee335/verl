@@ -673,6 +673,16 @@ class vLLMHttpServer:
         if self.node_rank == 0:
             await self.engine.reset_prefix_cache()
 
+    async def ack_delayed_kv_free(
+        self, request_id: str, open_resume_gate: bool = False
+    ) -> dict[str, Any]:
+        if self.node_rank != 0:
+            return {"acked": 0, "freed": 0, "missing": 1, "request_id": request_id}
+        result = await self.engine.ack_delayed_kv_free(
+            request_id, open_resume_gate=open_resume_gate
+        )
+        return {**result, "request_id": request_id}
+
     async def set_global_steps(self, global_steps: int):
         """Set the global steps of the model weights."""
         self.global_steps = global_steps
@@ -946,3 +956,22 @@ class vLLMReplica(RolloutReplica):
                 return r
 
         return {"aborted": False, "request_id": request_id, "error": "Request not found on any server"}
+
+    async def ack_delayed_kv_free(
+        self, request_id: str, open_resume_gate: bool = False
+    ) -> dict[str, Any]:
+        results = await asyncio.gather(
+            *[
+                server.ack_delayed_kv_free.remote(
+                    request_id, open_resume_gate=open_resume_gate
+                )
+                for server in self.servers
+            ]
+        )
+        return {
+            "acked": sum(r.get("acked", 0) for r in results),
+            "freed": sum(r.get("freed", 0) for r in results),
+            "missing": sum(r.get("missing", 0) for r in results),
+            "request_id": request_id,
+            "server_results": results,
+        }
