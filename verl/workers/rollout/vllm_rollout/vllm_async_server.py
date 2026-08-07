@@ -16,6 +16,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import os
 from pprint import pprint
 from typing import Any, Callable, Optional
@@ -74,6 +75,23 @@ else:
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
+
+
+def _get_preempted_duration_s(request_output: RequestOutput) -> float:
+    """Return the measured scheduler suspension time for a vLLM request."""
+    metrics = request_output.metrics
+    if metrics is None:
+        return 0.0
+
+    duration_s = 0.0
+    for span in metrics.preemption_spans:
+        value = span.get("duration_s")
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            continue
+        value = float(value)
+        if math.isfinite(value) and value > 0.0:
+            duration_s += value
+    return duration_s
 
 
 class vLLMHttpServer:
@@ -608,6 +626,7 @@ class vLLMHttpServer:
             "vllm_request_id": final_res.request_id,
             "num_cached_tokens": final_res.num_cached_tokens,
             "num_preempted": num_preempted,
+            "preempted_duration_s": _get_preempted_duration_s(final_res),
         }
 
         return TokenOutput(
