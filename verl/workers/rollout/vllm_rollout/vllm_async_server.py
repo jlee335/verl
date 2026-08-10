@@ -94,6 +94,43 @@ def _get_preempted_duration_s(request_output: RequestOutput) -> float:
     return duration_s
 
 
+def _get_request_timing_fields(request_output: RequestOutput) -> dict[str, float]:
+    """Copy low-overhead request timing already retained by vLLM.
+
+    ``arrival_time`` and ``first_token_latency`` use wall-clock time.  Engine
+    core timestamps use the vLLM process's monotonic clock, so they are labeled
+    as such and must not be compared directly with another process's monotonic
+    values.
+    """
+
+    metrics = request_output.metrics
+    if metrics is None:
+        return {}
+
+    fields = {}
+    names = {
+        "arrival_time": "vllm_arrival_time_s",
+        "queued_ts": "vllm_queued_monotonic_s",
+        "scheduled_ts": "vllm_scheduled_monotonic_s",
+        "first_token_ts": "vllm_first_token_monotonic_s",
+        "last_token_ts": "vllm_last_token_monotonic_s",
+        "first_token_latency": "time_to_first_token_s",
+    }
+    for attribute, field_name in names.items():
+        value = getattr(metrics, attribute, None)
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            continue
+        value = float(value)
+        if math.isfinite(value) and value >= 0.0:
+            fields[field_name] = value
+
+    queued = fields.get("vllm_queued_monotonic_s")
+    scheduled = fields.get("vllm_scheduled_monotonic_s")
+    if queued is not None and scheduled is not None and scheduled >= queued:
+        fields["vllm_time_in_queue_s"] = scheduled - queued
+    return fields
+
+
 class vLLMHttpServer:
     """vLLM http server in single node, this is equivalent to launch server with command line:
     ```
@@ -627,6 +664,7 @@ class vLLMHttpServer:
             "num_cached_tokens": final_res.num_cached_tokens,
             "num_preempted": num_preempted,
             "preempted_duration_s": _get_preempted_duration_s(final_res),
+            **_get_request_timing_fields(final_res),
         }
 
         return TokenOutput(
