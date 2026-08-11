@@ -83,8 +83,11 @@ def _get_preempted_duration_s(request_output: RequestOutput) -> float:
     if metrics is None:
         return 0.0
 
+    # ``preemption_spans`` is an optional extension carried by the patched
+    # scheduler used in some deployments.  Stock vLLM RequestStateStats does
+    # not expose it, so absence means that no suspension duration was observed.
     duration_s = 0.0
-    for span in metrics.preemption_spans:
+    for span in getattr(metrics, "preemption_spans", ()) or ():
         value = span.get("duration_s")
         if isinstance(value, bool) or not isinstance(value, int | float):
             continue

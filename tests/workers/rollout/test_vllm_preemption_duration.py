@@ -37,3 +37,8 @@ def test_get_preempted_duration_s_sums_completed_spans() -> None:
 
 def test_get_preempted_duration_s_without_metrics() -> None:
     assert _get_preempted_duration_s(SimpleNamespace(metrics=None)) == 0.0
+
+
+def test_get_preempted_duration_s_without_optional_spans() -> None:
+    """Stock vLLM RequestStateStats does not carry the patched span field."""
+    assert _get_preempted_duration_s(SimpleNamespace(metrics=SimpleNamespace())) == 0.0
