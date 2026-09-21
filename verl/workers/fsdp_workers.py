@@ -747,7 +747,7 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
         # For async mode, we can't call run_until_complete here, so we will switch to trainer mode in AgentLoopManager.
         # Note: sync mode is deprecated and rejected in RolloutConfig.__post_init__
 
-    async def rollout_mode(self):
+    async def rollout_mode(self, global_steps: int | None = None):
         """Context switch hybridengine to rollout mode."""
         aggressive_empty_cache(force_sync=True)
 
@@ -843,7 +843,12 @@ class ActorRolloutRefWorker(Worker, DistProfilerExtension):
             await self.rollout.update_weights(per_tensor_base_params, base_sync_done=False)
             del base_model_params, per_tensor_base_params
 
-        await self.rollout.update_weights(per_tensor_param, peft_config=peft_config, base_sync_done=self.base_sync_done)
+        await self.rollout.update_weights(
+            per_tensor_param,
+            peft_config=peft_config,
+            base_sync_done=self.base_sync_done,
+            global_steps=global_steps,
+        )
         log_gpu_memory_usage("After update_weights", logger=logger)
         del params, per_tensor_param
         aggressive_empty_cache(force_sync=True)
@@ -1733,5 +1738,5 @@ class CriticWorker(Worker, DistProfilerExtension):
 class AsyncActorRolloutRefWorker(ActorRolloutRefWorker):
     @register(dispatch_mode=Dispatch.ONE_TO_ALL, blocking=False)
     async def update_weights(self, global_steps: int = None):
-        await self.rollout_mode()
+        await self.rollout_mode(global_steps=global_steps)
         return True
